@@ -213,13 +213,13 @@ else:
             )
     else:
         st.info("No annotated frame yet. Start the webcam or upload an image first.")
+   # Display webcam frame safely
     if annotated is None or not isinstance(annotated, np.ndarray):
-    st.error("Annotated image is invalid.")
-else:
-    st.image(
-        annotated,
-        channels="BGR",
-        caption="Annotated result",
-        use_container_width=True
-    )
-
+        st.error("Annotated image is invalid.")
+    else:
+        frame_placeholder.image(
+            annotated,
+            channels="BGR",
+            caption="Webcam stream (annotated)",
+            use_container_width=True
+        )
