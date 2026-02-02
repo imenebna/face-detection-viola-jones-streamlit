@@ -1,4 +1,4 @@
-# Face Detection App (Viola–Jones) — Checkpoint
+# Face Detection App (Viola-Jones) Checkpoint
 
 This project is a Streamlit app that performs face detection using OpenCV Haar Cascades (Viola–Jones),
 with checkpoint features:
