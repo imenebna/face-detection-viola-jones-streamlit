@@ -109,7 +109,8 @@ if input_mode == "Upload image":
         st.session_state.last_faces_count = len(faces)
 
         st.write(f"Detected faces: **{len(faces)}**")
-        st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption="Annotated result", use_container_width=True)
+        st.image(annotated, channels="BGR", caption="Annotated result", use_container_width=True)
+
 
         col1, col2 = st.columns(2)
         with col1:
@@ -174,12 +175,7 @@ else:
                 st.session_state.last_faces_count = len(faces)
 
                 info_placeholder.write(f"Detected faces: **{len(faces)}**")
-                frame_placeholder.image(
-                    cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                    caption="Webcam stream (annotated)",
-                    use_container_width=True
-                )
-
+                frame_placeholder.image(annotated, channels="BGR", caption="Webcam stream (annotated)", use_container_width=True)
                 time.sleep(0.03)
 
             cap.release()
@@ -206,3 +202,8 @@ else:
             )
     else:
         st.info("No annotated frame yet. Start the webcam or upload an image first.")
+    if annotated is None or not isinstance(annotated, np.ndarray):
+    st.error("Annotated image is invalid.")
+    else:
+    st.image(annotated, channels="BGR", use_container_width=True)
+
