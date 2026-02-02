@@ -109,15 +109,17 @@ if input_mode == "Upload image":
         st.session_state.last_faces_count = len(faces)
 
         st.write(f"Detected faces: **{len(faces)}**")
+       # Display the annotated image safely
         if annotated is None or not isinstance(annotated, np.ndarray):
-        st.error("Annotated image is invalid.")
+            st.error("Annotated image is invalid.")
         else:
-        st.image(
-            annotated,
-            channels="BGR",
-            caption="Annotated result",
-            use_container_width=True
-        )
+            st.image(
+                annotated,
+                channels="BGR",
+                caption="Annotated result",
+                use_container_width=True
+            )
+
 
 
 
