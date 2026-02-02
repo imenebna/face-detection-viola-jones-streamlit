@@ -31,3 +31,7 @@ streamlit run app.py
 ## Notes
 - For saving to your device, use the **Download** button in the app.
 - Webcam mode works best when running locally.
+
+Used Pic for Test:
+https://www.freepik.com/free-photo/vertical-shot-pleasant-looking-satisfied-millennial-girl-wears-casual-knitted-sweater-has-full-lips-blue-eyes-dark-hair-combed-knot-poses-pink-background-blank-space_12697884.htm#from_element=cross_selling__photo
+Free Source
