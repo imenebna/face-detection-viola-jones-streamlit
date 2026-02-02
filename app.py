@@ -109,7 +109,16 @@ if input_mode == "Upload image":
         st.session_state.last_faces_count = len(faces)
 
         st.write(f"Detected faces: **{len(faces)}**")
-        st.image(annotated, channels="BGR", caption="Annotated result", use_container_width=True)
+        if annotated is None or not isinstance(annotated, np.ndarray):
+        st.error("Annotated image is invalid.")
+        else:
+        st.image(
+            annotated,
+            channels="BGR",
+            caption="Annotated result",
+            use_container_width=True
+        )
+
 
 
         col1, col2 = st.columns(2)
@@ -204,6 +213,11 @@ else:
         st.info("No annotated frame yet. Start the webcam or upload an image first.")
     if annotated is None or not isinstance(annotated, np.ndarray):
     st.error("Annotated image is invalid.")
-    else:
-    st.image(annotated, channels="BGR", use_container_width=True)
+else:
+    st.image(
+        annotated,
+        channels="BGR",
+        caption="Annotated result",
+        use_container_width=True
+    )
 
