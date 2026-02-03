@@ -234,13 +234,3 @@ else:
             out_path = os.path.join(SAVE_DIR, f"webcam_faces_{ts}.png")
             cv2.imwrite(out_path, latest_bgr)
             st.success(f"Saved on server as: {out_path}")
-
-    st.markdown(
-        """
-### TURN setup (to ensure webcam works online on most networks)
-In Streamlit Cloud → **Manage app → Secrets**, add:
-
-```toml
-TURN_USERNAME = "your_turn_username"
-TURN_PASSWORD = "your_turn_password"
-TURN_URLS = ["turn:your.turn.server:3478?transport=udp", "turn:your.turn.server:3478?transport=tcp"]
