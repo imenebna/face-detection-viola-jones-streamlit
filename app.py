@@ -5,8 +5,9 @@ import threading
 import cv2
 import numpy as np
 import streamlit as st
+from PIL import Image
 
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 import av
 
 
@@ -32,23 +33,13 @@ def encode_image_bytes(img_bgr, ext=".png"):
     return buffer.tobytes()
 
 
-def bgr_to_rgb(img_bgr: np.ndarray) -> np.ndarray:
-    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-
 def detect_and_draw(frame_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness=2):
-    # Ensure correct types
     scale_factor = float(scale_factor)
     min_neighbors = int(min_neighbors)
     thickness = int(thickness)
 
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=scale_factor,
-        minNeighbors=min_neighbors
-    )
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=scale_factor, minNeighbors=min_neighbors)
 
     annotated = frame_bgr.copy()
     for (x, y, w, h) in faces:
@@ -57,30 +48,38 @@ def detect_and_draw(frame_bgr, face_cascade, scale_factor, min_neighbors, rect_c
     return annotated, faces
 
 
+def bgr_to_pil(img_bgr: np.ndarray) -> Image.Image:
+    """Most compatible display path for Streamlit Cloud."""
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    # Ensure contiguous uint8 (avoids rare Streamlit type errors)
+    img_rgb = np.ascontiguousarray(img_rgb, dtype=np.uint8)
+    return Image.fromarray(img_rgb)
+
+
 # ---------------------------
-# Thread-safe storage for latest webcam result
+# Thread-safe last webcam frame storage
 # ---------------------------
 _last_lock = threading.Lock()
-_last_annotated = None
+_last_bgr = None
 _last_count = 0
 
 
-def set_last_webcam(annotated_bgr: np.ndarray, faces_count: int):
-    global _last_annotated, _last_count
+def set_last_webcam(img_bgr: np.ndarray, count: int):
+    global _last_bgr, _last_count
     with _last_lock:
-        _last_annotated = annotated_bgr
-        _last_count = faces_count
+        _last_bgr = img_bgr
+        _last_count = count
 
 
 def get_last_webcam():
     with _last_lock:
-        if _last_annotated is None:
+        if _last_bgr is None:
             return None, 0
-        return _last_annotated.copy(), _last_count
+        return _last_bgr.copy(), _last_count
 
 
 # ---------------------------
-# UI
+# Streamlit UI
 # ---------------------------
 st.set_page_config(page_title="Face Detection (Viola-Jones)", layout="centered")
 st.title("Face Detection using Viola-Jones (Haar Cascade)")
@@ -92,23 +91,23 @@ st.markdown(
   - **Upload image** (works everywhere)
   - **Webcam (Online/WebRTC)** (works online in the browser)
 - Adjust detection:
-  - **scaleFactor** (smaller = more detection, slower)
-  - **minNeighbors** (higher = fewer false positives)
+  - **scaleFactor**
+  - **minNeighbors**
 - Choose the **rectangle color**.
 - Save results:
   - **Save**: writes to server folder (`saved_faces/`)
-  - **Download**: saves to your device (recommended)
+  - **Download**: saves to your device
 """
 )
 
-# Load Haar cascade
+# Load cascade
 cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
 face_cascade = cv2.CascadeClassifier(cascade_path)
 if face_cascade.empty():
     st.error("Failed to load Haar cascade. Check OpenCV installation.")
     st.stop()
 
-# Sidebar settings (checkpoint requirements)
+# Sidebar controls (checkpoint requirements)
 st.sidebar.header("Detection Settings")
 rect_hex = st.sidebar.color_picker("Rectangle color", value="#00FF00")
 rect_color_bgr = hex_to_bgr(rect_hex)
@@ -124,7 +123,7 @@ ensure_dir(SAVE_DIR)
 
 
 # =========================================================
-# MODE 1: Upload image
+# MODE 1: Upload image (fixes st.image TypeError by using PIL)
 # =========================================================
 if mode == "Upload image":
     uploaded = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
@@ -139,22 +138,15 @@ if mode == "Upload image":
         st.stop()
 
     annotated_bgr, faces = detect_and_draw(
-        img_bgr,
-        face_cascade,
-        scale_factor=scale_factor,
-        min_neighbors=min_neighbors,
-        rect_color_bgr=rect_color_bgr,
-        thickness=thickness
+        img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
     )
 
     st.write(f"Detected faces: **{len(faces)}**")
 
-    # Display RGB without channels=... (prevents Streamlit Cloud TypeError)
-    annotated_rgb = bgr_to_rgb(annotated_bgr)
-    st.image(annotated_rgb, caption="Annotated result", use_container_width=True)
+    # Display as PIL image (most stable on Streamlit Cloud)
+    st.image(bgr_to_pil(annotated_bgr), caption="Annotated result", use_container_width=True)
 
     col1, col2 = st.columns(2)
-
     with col1:
         if st.button("Save annotated image"):
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -172,42 +164,43 @@ if mode == "Upload image":
 
 
 # =========================================================
-# MODE 2: Webcam (Online/WebRTC)
+# MODE 2: Webcam WebRTC (more stable processor pattern)
 # =========================================================
 else:
     st.subheader("Webcam (Online/WebRTC)")
-    st.caption("If prompted, allow camera permissions. If the video stays loading, try another browser/network.")
+    st.caption("Allow camera permissions. If it stays black, try Chrome + another network (WebRTC can be blocked).")
 
-    # Explicit STUN config + autoplay/muted helps many browsers
     RTC_CONFIGURATION = {
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:global.stun.twilio.com:3478"]},
+        ]
     }
 
-    def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
-        img_bgr = frame.to_ndarray(format="bgr24")
+    class FaceProcessor(VideoProcessorBase):
+        def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+            img_bgr = frame.to_ndarray(format="bgr24")
 
-        annotated_bgr, faces = detect_and_draw(
-            img_bgr,
-            face_cascade,
-            scale_factor=scale_factor,
-            min_neighbors=min_neighbors,
-            rect_color_bgr=rect_color_bgr,
-            thickness=thickness
-        )
+            annotated_bgr, faces = detect_and_draw(
+                img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
+            )
 
-        set_last_webcam(annotated_bgr, len(faces))
-
-        # Return annotated frame to browser
-        return av.VideoFrame.from_ndarray(annotated_bgr, format="bgr24")
+            set_last_webcam(annotated_bgr, len(faces))
+            return av.VideoFrame.from_ndarray(annotated_bgr, format="bgr24")
 
     webrtc_streamer(
         key="webrtc-face-detect",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=RTC_CONFIGURATION,
         media_stream_constraints={"video": True, "audio": False},
-        video_frame_callback=video_frame_callback,
+        video_processor_factory=FaceProcessor,
         async_processing=True,
-        video_html_attrs={"autoPlay": True, "controls": False, "muted": True},
+        video_html_attrs={
+            "autoPlay": True,
+            "muted": True,
+            "playsInline": True,   # important on some browsers
+            "controls": False
+        },
     )
 
     latest_bgr, latest_count = get_last_webcam()
@@ -220,7 +213,6 @@ else:
         st.info("No webcam frame captured yet. Click Start in the webcam component above.")
     else:
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("Save last webcam frame"):
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
