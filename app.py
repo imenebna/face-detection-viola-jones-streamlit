@@ -86,8 +86,8 @@ def get_last_webcam():
 # ----------------------------
 # Streamlit UI
 # ----------------------------
-st.set_page_config(page_title="Face Detection (Viola–Jones)", layout="centered")
-st.title("Face Detection using Viola–Jones (Haar Cascade)")
+st.set_page_config(page_title="Face Detection (Viola-Jones)", layout="centered")
+st.title("Face Detection using Viola-Jones (Haar Cascade)")
 
 # ✅ Requirement: instructions in UI
 st.markdown(
