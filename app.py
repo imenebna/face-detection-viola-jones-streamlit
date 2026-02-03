@@ -207,7 +207,7 @@ else:
         rtc_configuration={"iceServers": ice_servers},
         media_stream_constraints={"video": True, "audio": False},
         video_processor_factory=FaceProcessor,
-        async_processing=True,
+        async_processing=False,
         video_html_attrs={"autoPlay": True, "muted": True, "playsInline": True},
     )
 
