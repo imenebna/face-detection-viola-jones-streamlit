@@ -4,7 +4,15 @@ from datetime import datetime
 import cv2
 import numpy as np
 import streamlit as st
-from PIL import Image
+
+# Live video (optional). If not installed or not supported, app falls back to st.camera_input.
+try:
+    import av  # noqa: F401
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode
+
+    WEBRTC_AVAILABLE = True
+except Exception:
+    WEBRTC_AVAILABLE = False
 
 
 # ============================================================
@@ -40,12 +48,6 @@ def detect_and_draw(frame_bgr, face_cascade, scale_factor, min_neighbors, rect_c
     return annotated, faces
 
 
-def bgr_to_pil(img_bgr: np.ndarray) -> Image.Image:
-    """Convert OpenCV BGR ndarray to PIL RGB."""
-    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(rgb)
-
-
 def encode_png_bytes(img_bgr: np.ndarray) -> bytes:
     ok, buf = cv2.imencode(".png", img_bgr)
     if not ok:
@@ -66,17 +68,18 @@ def get_last_result():
 # Streamlit UI
 # ============================================================
 st.set_page_config(page_title="Face Detection (Viola-Jones)", layout="wide")
-st.title("Face Detection using Viola-Jones (Haar Cascade)")
+st.title("Face Detection using Viola–Jones (Haar Cascade)")
 
+# ✅ Checkpoint requirement: instructions in UI
 st.markdown(
     """
 ### Instructions
-1. Choose **Upload image** or **Webcam (Online)**.
-2. Adjust detection sliders:
-   - **scaleFactor**: smaller values can detect more faces but may be slower.
-   - **minNeighbors**: higher values reduce false positives but may miss faces.
-3. Choose the **rectangle color**.
-4. Use **Download** to save the annotated result to your device.
+1) Choose **Upload image** or **Webcam**.  
+2) Adjust detection sliders:
+- **scaleFactor**: smaller values can detect more faces but may be slower.
+- **minNeighbors**: higher values reduce false positives but may miss faces.
+3) Choose the **rectangle color**.
+4) Use **Download** to save the annotated result to your device.
 """
 )
 
@@ -87,14 +90,14 @@ if face_cascade.empty():
     st.error("Failed to load Haar cascade. Check your OpenCV installation.")
     st.stop()
 
-# Sidebar controls (checkpoint requirements)
+# Sidebar controls (✅ color picker + sliders)
 st.sidebar.header("Detection Settings")
-rect_hex = st.sidebar.color_picker("Rectangle color", value="#00FF00")
+rect_hex = st.sidebar.color_picker("Rectangle color", value="#00FF00")  # ✅ requirement
 rect_color_bgr = hex_to_bgr(rect_hex)
 
-scale_factor = st.sidebar.slider("scaleFactor", min_value=1.01, max_value=1.50, value=1.10, step=0.01)
-min_neighbors = st.sidebar.slider("minNeighbors", min_value=1, max_value=20, value=5, step=1)
-thickness = st.sidebar.slider("Rectangle thickness", min_value=1, max_value=6, value=2, step=1)
+scale_factor = st.sidebar.slider("scaleFactor", 1.01, 1.50, 1.10, 0.01)  # ✅ requirement
+min_neighbors = st.sidebar.slider("minNeighbors", 1, 20, 5, 1)            # ✅ requirement
+thickness = st.sidebar.slider("Rectangle thickness", 1, 6, 2, 1)
 
 SAVE_DIR = "saved_faces"
 ensure_dir(SAVE_DIR)
@@ -104,12 +107,12 @@ if "last_annotated_bgr" not in st.session_state:
 if "last_faces_count" not in st.session_state:
     st.session_state["last_faces_count"] = 0
 
-input_mode = st.radio("Select input mode", ["Upload image", "Webcam (Online)"], horizontal=False)
+mode = st.radio("Select input mode", ["Upload image", "Webcam"], horizontal=True)
 
 # ============================================================
-# MODE 1: Upload image
+# MODE 1: Upload image (fixed: no PIL, no st.image kwargs issues)
 # ============================================================
-if input_mode == "Upload image":
+if mode == "Upload image":
     uploaded = st.file_uploader("Upload an image (jpg, jpeg, png)", type=["jpg", "jpeg", "png"])
 
     if uploaded is None:
@@ -125,46 +128,95 @@ if input_mode == "Upload image":
         annotated_bgr, faces = detect_and_draw(
             img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
         )
-
         set_last_result(annotated_bgr, len(faces))
 
         st.write(f"Detected faces: **{len(faces)}**")
-        st.image(bgr_to_pil(annotated_bgr), caption="Annotated result", use_container_width=True)
+
+        # Robust display: RGB numpy array (no PIL, no problematic kwargs)
+        annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
+        st.image(annotated_rgb, caption="Annotated result")
 
 # ============================================================
-# MODE 2: Webcam ONLINE (reliable) using st.camera_input
+# MODE 2: Webcam
+# - Preferred: LIVE video via WebRTC (if available)
+# - Fallback: st.camera_input capture (always works online)
 # ============================================================
 else:
-    st.subheader("Webcam (Online)")
-    st.caption(
-        "This uses Streamlit’s built-in camera capture (works reliably online). "
-        "Capture a frame, then face detection runs on that image."
-    )
+    st.subheader("Webcam")
 
-    cam_file = st.camera_input("Take a photo with your webcam")
+    # -------- Live video mode (WebRTC) --------
+    if WEBRTC_AVAILABLE:
+        st.caption("Live video detection (WebRTC). Allow camera permissions when prompted.")
 
-    if cam_file is None:
-        st.info("Click the camera button above, allow permissions, then capture a photo.")
+        # Optional TURN from Streamlit Secrets (flat keys)
+        # Put these in Streamlit Cloud Secrets if you want TURN:
+        # TURN_USERNAME, TURN_PASSWORD, TURN_URL_1, TURN_URL_2
+        turn_user = st.secrets.get("TURN_USERNAME", "")
+        turn_pass = st.secrets.get("TURN_PASSWORD", "")
+        turn_url_1 = st.secrets.get("TURN_URL_1", "")
+        turn_url_2 = st.secrets.get("TURN_URL_2", "")
+        turn_urls = [u for u in [turn_url_1, turn_url_2] if u]
+
+        ice_servers = [{"urls": ["stun:stun.l.google.com:19302"]}]
+        if turn_user and turn_pass and turn_urls:
+            ice_servers.insert(0, {"urls": turn_urls, "username": turn_user, "credential": turn_pass})
+
+        class FaceProcessor:
+            def __init__(self):
+                self.last_faces = 0
+
+            def recv(self, frame):
+                img_bgr = frame.to_ndarray(format="bgr24")
+
+                annotated_bgr, faces = detect_and_draw(
+                    img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
+                )
+
+                self.last_faces = len(faces)
+                set_last_result(annotated_bgr, self.last_faces)
+
+                return av.VideoFrame.from_ndarray(annotated_bgr, format="bgr24")
+
+        ctx = webrtc_streamer(
+            key="face-webrtc",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration={"iceServers": ice_servers},
+            media_stream_constraints={"video": True, "audio": False},
+            video_html_attrs={"autoPlay": True, "muted": True, "playsInline": True},
+            async_processing=False,
+            video_processor_factory=FaceProcessor,
+        )
+
+        if ctx.video_processor:
+            st.write(f"Detected faces (latest frame): **{ctx.video_processor.last_faces}**")
+
+        st.divider()
+        st.caption("If live video stays black on your network, use the capture fallback below.")
+
     else:
-        # Camera image bytes -> OpenCV image
+        st.warning("Live video mode requires streamlit-webrtc. Using camera capture fallback.")
+
+    # -------- Capture fallback (always online reliable) --------
+    cam_file = st.camera_input("Capture a frame (fallback that works reliably online)")
+
+    if cam_file is not None:
         file_bytes = np.frombuffer(cam_file.getvalue(), dtype=np.uint8)
         img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
         if img_bgr is None:
-            st.error("Could not read the camera image. Please capture again.")
-            st.stop()
+            st.error("Could not read the captured image. Please try again.")
+        else:
+            annotated_bgr, faces = detect_and_draw(
+                img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
+            )
+            set_last_result(annotated_bgr, len(faces))
 
-        annotated_bgr, faces = detect_and_draw(
-            img_bgr, face_cascade, scale_factor, min_neighbors, rect_color_bgr, thickness
-        )
-
-        set_last_result(annotated_bgr, len(faces))
-
-        st.write(f"Detected faces: **{len(faces)}**")
-        st.image(bgr_to_pil(annotated_bgr), caption="Annotated result", use_container_width=True)
+            st.write(f"Detected faces (captured frame): **{len(faces)}**")
+            annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
+            st.image(annotated_rgb, caption="Annotated captured frame")
 
 # ============================================================
-# SAVE / DOWNLOAD (checkpoint requirement: save to user's device)
+# SAVE / DOWNLOAD (Checkpoint: save to user device + cv2.imwrite used)
 # ============================================================
 st.divider()
 st.subheader("Save / Download last result")
@@ -172,14 +224,14 @@ st.subheader("Save / Download last result")
 latest_bgr, latest_count = get_last_result()
 
 if latest_bgr is None:
-    st.info("No annotated result yet. Upload an image or capture a webcam photo first.")
+    st.info("No annotated result yet. Upload an image or use the webcam first.")
 else:
     st.write(f"Detected faces (last result): **{latest_count}**")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        # Save on server (optional, still using cv2.imwrite per hint)
+        # Uses cv2.imwrite (hint) - optional server save
         if st.button("Save on server (optional)"):
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_path = os.path.join(SAVE_DIR, f"faces_{ts}.png")
@@ -187,7 +239,7 @@ else:
             st.success(f"Saved on server as: {out_path}")
 
     with col2:
-        # Save to user's device (required)
+        # ✅ Required: save to user's device
         st.download_button(
             label="Download annotated image (to your device)",
             data=encode_png_bytes(latest_bgr),
