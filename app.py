@@ -175,20 +175,18 @@ else:
     # WebRTC routing: STUN (often ok) + TURN (makes it reliable on many networks)
     turn_user = st.secrets.get("TURN_USERNAME", "")
     turn_pass = st.secrets.get("TURN_PASSWORD", "")
-    turn_urls = st.secrets.get("TURN_URLS", [])  # list
-
+    turn_url_1 = st.secrets.get("TURN_URL_1", "")
+    turn_url_2 = st.secrets.get("TURN_URL_2", "")
+    
     ice_servers = [{"urls": ["stun:stun.l.google.com:19302"]}]
-
+    
+    turn_urls = [u for u in [turn_url_1, turn_url_2] if u]
     if turn_user and turn_pass and turn_urls:
-        ice_servers.append(
+        ice_servers.insert(
+            0,
             {"urls": turn_urls, "username": turn_user, "credential": turn_pass}
         )
-        st.success("TURN is configured ✅ Webcam should work reliably online.")
-    else:
-        st.warning(
-            "TURN not configured. Webcam may still work, but on some networks it can be black.\n"
-            "To make it reliable, set TURN secrets (instructions below)."
-        )
+
 
     class FaceProcessor(VideoProcessorBase):
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
